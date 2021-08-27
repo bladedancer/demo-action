@@ -1,0 +1,48 @@
+name: manage-resources
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: /opt
+    
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v2
+        with:
+          node-version: '14'
+      - name: update-cli
+        run: |
+              npm install -g axway || true
+              axway pm install @axway/axway-central-cli
+      - name: central-config
+        env: 
+          baseUrl: ${{ secrets.BASE_URL }}
+          privateKey: ${{ secrets.PRIVATE_KEY }}
+          environment: ${{ secrets.ENVIRONMENT }}
+          clientId: ${{ secrets.CLIENT_ID }}
+          KEY_FILE: /home/runner/key.pem
+        run: |
+              echo "${privateKey}" > ${KEY_FILE}
+              axway config set auth.tokenStoreType file
+              axway config set env ${environment}
+              axway central config set --base-url ${baseUrl}
+              axway central config set --client-id=$clientId
+              axway config list
+              axway central config list
+      - name: central-auth
+        env: 
+          clientId: ${{ secrets.CLIENT_ID }}
+          KEY_FILE: /home/runner/key.pem
+        run: |
+              axway auth login --secret-file ${KEY_FILE} --client-id ${clientId}
+      - name: apply-yaml
+        run: |
+          find $GITHUB_WORKSPACE -type f \( -name \*.yml -o -name \*.yaml \) | grep -v .github
+          find $GITHUB_WORKSPACE -type f \( -name \*.yml -o -name \*.yaml \) | grep -v .github | xargs -I{} sh -c "cat {} && echo -n '\n---\n'" | sed '$ d' > /tmp/merged.yaml
+          axway central apply -f /tmp/merged.yaml
